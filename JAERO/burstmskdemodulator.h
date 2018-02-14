@@ -120,7 +120,7 @@ private:
 
     //hilbert
     QJHilbertFilter *hfir;
-    QVector<kffsamp_t> hfirbuff;
+    QVector<kiss_fft_cpx> hfirbuff;
 
     //delay lines
     Delay< std::complex<double> > bt_d1;

@@ -44,7 +44,6 @@ SOURCES += main.cpp\
     databasetext.cpp \
     oqpskdemodulator.cpp \
     audiooqpskdemodulator.cpp \
-    ../kiss_fft130/kiss_fastfir.c \
     burstoqpskdemodulator.cpp \
     audioburstoqpskdemodulator.cpp \
     arincparse.cpp \
@@ -53,7 +52,10 @@ SOURCES += main.cpp\
     tcpclient.cpp \
     burstmskdemodulator.cpp \
     audioburstmskdemodulator.cpp \
-    jconvolutionalcodec.cpp
+    jconvolutionalcodec.cpp \
+    sdr.cpp \
+    ../kiss_fft130/kiss_fastfir_complex.c \
+    ../kiss_fft130/kiss_fastfir_real.c
 
 
 HEADERS  += mainwindow.h \
@@ -79,7 +81,6 @@ HEADERS  += mainwindow.h \
     databasetext.h \
     oqpskdemodulator.h \
     audiooqpskdemodulator.h \
-    ../kiss_fft130/kiss_fastfir.h \
     burstoqpskdemodulator.h \
     audioburstoqpskdemodulator.h \
     arincparse.h \
@@ -88,7 +89,10 @@ HEADERS  += mainwindow.h \
     tcpclient.h \
     burstmskdemodulator.h \
     audioburstmskdemodulator.h \
-    jconvolutionalcodec.h
+    jconvolutionalcodec.h \
+    sdr.h \
+    ../kiss_fft130/kiss_fastfir_complex.h \
+    ../kiss_fft130/kiss_fastfir_real.h
 
 
 FORMS    += mainwindow.ui \
@@ -136,3 +140,32 @@ QMAKE_CXXFLAGS_RELEASE += -O3
 # add the desired -O3 if not present
 #QMAKE_CXXFLAGS_RELEASE *= -O3
 
+
+#sdr includes
+win32 {
+#on windows this is where I put the headers of the 3rd party libraries that are linked to.
+    HEADERS  += ../librtlsdr/include/rtl-sdr.h \
+    ../librtlsdr/include/rtl-sdr_export.h
+}
+unix {
+# on the pi Qt creator doesn't seem know about /usr/include and /usr/local/include so I've added them here so it knows
+    INCLUDEPATH += /usr/include \
+    /usr/local/include
+#for me they are saved here but you dont need this
+    HEADERS  += /usr/include/rtl-sdr.h \
+    /usr/include/rtl-sdr_export.h
+}
+
+# here we have librtlsdr libs
+win32 {
+#on windows the libsdr dlls are here
+INCLUDEPATH +=../librtlsdr/include
+contains(QT_ARCH, i386) {
+    #message("32-bit")
+    LIBS += -L$$PWD/../librtlsdr/32
+} else {
+    #message("64-bit")
+    LIBS += -L$$PWD/../librtlsdr/64
+}
+}
+LIBS += -lrtlsdr

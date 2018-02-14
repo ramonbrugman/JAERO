@@ -9,7 +9,8 @@
 #include <QObject>
 #include <assert.h>
 #include <QVector>
-#include "../kiss_fft130/kiss_fastfir.h"
+#include "../kiss_fft130/kiss_fastfir_complex.h"
+#include "../kiss_fft130/kiss_fastfir_real.h"
 //---------------------------------------------------------------------------
 
 //#define ASSERTCH(obj,idx) assert(idx>=0);assert(idx<obj.size())
@@ -23,6 +24,8 @@
 #define WTSIZE_1_4 1.0*WTSIZE/4.0
 
 typedef std::complex<double> cpx_type;
+
+float arctan2_fast_maybe(cpx_type point);
 
 class TrigLookUp
 {
@@ -79,6 +82,160 @@ private:
 
 };
 
+//---- todo move to using this wt; its faster but still needs some work to get more functionallity
+
+#ifndef CPX_TYPE
+typedef std::complex<double> cpx_type;
+#define CPX_TYPE
+#endif
+
+//this is not tested much and it might have bugs in it
+//interpolation is about 5 orders of magnitude better. rough --> 1dp interpol --> 6dp. or WT_COMPLEX_SIZE==16 for interpol and WT_COMPLEX_SIZE==1024 for rough
+class WaveTableComplex
+{
+public:
+#define WT_COMPLEX_SIZE 1024
+    WaveTableComplex()
+    {
+        wt_ptr=0;
+        setfreq(1,100);
+    }
+    void setfreq(double freq)
+    {
+        wt_freq=freq;
+        wt_step=wt_freq*WT_COMPLEX_SIZE/wt_samplerate;
+
+    }
+    void setfreq(double freq,double samplerate)
+    {
+        wt_samplerate=samplerate;
+        setfreq(freq);
+        if(wt_cis.size()!=WT_COMPLEX_SIZE)
+        {
+            wt_cis.resize(WT_COMPLEX_SIZE);
+            for(int i=0;i<WT_COMPLEX_SIZE;i++){wt_cis[i]=cpx_type(cos(2.0*M_PI*((double)i)/WT_COMPLEX_SIZE),sin(2.0*M_PI*((double)i)/WT_COMPLEX_SIZE));}
+        }
+    }
+    void mix(std::vector<cpx_type>&input)
+    {
+        unsigned len=input.size();
+        for(unsigned int i=0;i<len;++i)
+        {
+            //next step
+            wt_ptr+=wt_step;
+            if(wt_ptr>=WT_COMPLEX_SIZE)wt_ptr-=WT_COMPLEX_SIZE;
+
+            //get val
+            int x0=floor(wt_ptr);
+            int x1=x0+1;if(x1>=WT_COMPLEX_SIZE)x1-=WT_COMPLEX_SIZE;
+            double w1=wt_ptr-((double)x0);
+            double w0=1.0-w1;
+            //val=w0*wt_cis[x0]+w1*wt_cis[x1];
+
+            //mix val
+            input[i]*=(w0*wt_cis[x0]+w1*wt_cis[x1]);
+        }
+    }
+    void mix_rough(std::vector<cpx_type>&input)
+    {
+        unsigned len=input.size();
+        for(unsigned int i=0;i<len;++i)
+        {
+            //next step
+            wt_ptr+=wt_step;
+            if(wt_ptr>=WT_COMPLEX_SIZE)wt_ptr-=WT_COMPLEX_SIZE;
+
+            //mix val
+            input[i]*=wt_cis[floor(wt_ptr)];
+        }
+    }
+
+    cpx_type take_step_and_get_val()
+    {
+
+        //next step
+        wt_ptr+=wt_step;
+        if(wt_ptr>=WT_COMPLEX_SIZE)wt_ptr-=WT_COMPLEX_SIZE;
+
+        //get val
+        int x0=floor(wt_ptr);
+        int x1=x0+1;if(x1>=WT_COMPLEX_SIZE)x1-=WT_COMPLEX_SIZE;
+        double w1=wt_ptr-((double)x0);
+        double w0=1.0-w1;
+        val=w0*wt_cis[x0]+w1*wt_cis[x1];
+
+        //get val rough
+        //val=wt_cis[floor(wt_ptr)];
+
+        return val;
+    }
+
+
+    //test for -ve frequencies
+    cpx_type take_step_back_and_get_val()
+    {
+
+        //previous step
+        wt_ptr-=wt_step;
+        if(wt_ptr<0)wt_ptr+=WT_COMPLEX_SIZE;
+
+        //get val
+        int x0=floor(wt_ptr);
+        int x1=x0+1;if(x1>=WT_COMPLEX_SIZE)x1-=WT_COMPLEX_SIZE;
+        double w1=wt_ptr-((double)x0);
+        double w0=1.0-w1;
+        val=w0*wt_cis[x0]+w1*wt_cis[x1];
+
+        //get val rough
+        //val=wt_cis[ceil(wt_ptr)];
+
+        return val;
+    }
+
+
+    void take_step()
+    {
+
+        //next step
+        wt_ptr+=wt_step;
+        if(wt_ptr>=WT_COMPLEX_SIZE)wt_ptr-=WT_COMPLEX_SIZE;
+
+    }
+
+    cpx_type get_val()
+    {
+        //get val
+        int x0=floor(wt_ptr);
+        int x1=x0+1;if(x1>=WT_COMPLEX_SIZE)x1-=WT_COMPLEX_SIZE;
+        double w1=wt_ptr-((double)x0);
+        double w0=1.0-w1;
+        val=w0*wt_cis[x0]+w1*wt_cis[x1];
+
+        //get val rough
+        //val=wt_cis[floor(wt_ptr)];
+
+        return val;
+    }
+
+    void nudgefreq(double delta_freq,double min,double max)
+    {
+        wt_freq+=delta_freq;
+        if(wt_freq>max)wt_freq=max;
+        if(wt_freq<min)wt_freq=min;
+        wt_step=wt_freq*WT_COMPLEX_SIZE/wt_samplerate;
+    }
+
+    double wt_step;
+    double wt_ptr;
+    double wt_freq;
+    double wt_samplerate;
+    cpx_type val;
+
+    static std::vector<cpx_type> wt_cis;
+};
+
+//---------
+
 class FIR
 {
 public:
@@ -99,27 +256,97 @@ public:
 
 //--C-band
 
+//--
+
+class QJFilterDesign
+{
+public:
+    QJFilterDesign(){}
+    static QVector<kiss_fft_scalar> LowPassHanning(double FrequencyCutOff, double SampleRate, int Length);
+    static QVector<kiss_fft_scalar> HighPassHanning(double FrequencyCutOff, double SampleRate, int Length);
+    static QVector<kiss_fft_scalar> BandPassHanning(double LowFrequencyCutOff,double HighFrequencyCutOff, double SampleRate, int Length);
+private:
+};
 
 class QJFastFIRFilter : public QObject
 {
     Q_OBJECT
 public:
     QJFastFIRFilter(QObject *parent = 0);
-    int setKernel(QVector<kffsamp_t> imp_responce,int nfft);
-    int setKernel(QVector<kffsamp_t> imp_responce);
-    void Update(kffsamp_t *data,int Size);
-    void Update(QVector<kffsamp_t> &data);
+    int setKernel(QVector<kiss_fft_cpx> imp_responce,int nfft);
+    int setKernel(QVector<cpx_type> imp_responce,int nfft);
+    int setKernel(QVector<kiss_fft_scalar> imp_responce,int _nfft);
+    int setKernel(QVector<kiss_fft_cpx> imp_responce);
+    int setKernel(QVector<cpx_type> imp_responce);
+    int setKernel(QVector<kiss_fft_scalar> imp_responce);
+    int updateKernel(const QVector<kiss_fft_cpx> &imp_responce);
+    int updateKernel(const QVector<cpx_type> &imp_responce);
+    int updateKernel(const QVector<kiss_fft_scalar> &imp_responce);
+    void Update(kiss_fft_cpx *data,int Size);
+    void Update(QVector<kiss_fft_cpx> &data);
+    void Update(std::vector<kiss_fft_cpx> &data);
+    double Update_Single(double signal);
+    kiss_fft_cpx Update_Single_c_out(double signal);
+    cpx_type Update_Single_c_out2(double signal);
+    kiss_fft_cpx Update_Single(kiss_fft_cpx signal);
+    cpx_type Update_Single(cpx_type signal);
+    int getKernelSize(){return kernelsize;}
     void reset();
     ~QJFastFIRFilter();
 private:
     size_t nfft;
-    kiss_fastfir_cfg cfg;
+    kiss_fastfir_cfg_complex cfg;
     size_t idx_inbuf;
-    QVector<kffsamp_t> inbuf;
-    QVector<kffsamp_t> outbuf;
-    QVector<kffsamp_t> remainder;
+    std::vector<kiss_fft_cpx> inbuf; //std::vector seems a bit faster than QVector so thats why I've used some of them
+    std::vector<kiss_fft_cpx> outbuf;
+    std::vector<kiss_fft_cpx> remainder;
     int remainder_ptr;
+
+    //for single byte at a time.
+    std::vector<kiss_fft_cpx> single_input_output_buf;
+    int single_input_output_buf_ptr;
+
+    //
+    int kernelsize;
+
 };
+
+
+class QJFastFIRFilter_Real : public QObject
+{
+    Q_OBJECT
+public:
+    QJFastFIRFilter_Real(QObject *parent = 0);
+    int setKernel(QVector<kiss_fft_scalar> imp_responce);
+    int setKernel(QVector<kiss_fft_scalar> imp_responce,int _nfft);
+    int updateKernel(const QVector<kiss_fft_scalar> &imp_responce);
+    void Update(std::vector<kiss_fft_scalar> &data);
+    void Update(kiss_fft_scalar *data,int Size);
+    double Update_Single(kiss_fft_scalar signal);
+    int getKernelSize(){return kernelsize;}
+    void reset();
+    ~QJFastFIRFilter_Real();
+private:
+    size_t nfft;
+    kiss_fastfir_cfg_real cfg;
+    size_t idx_inbuf;
+    std::vector<kiss_fft_scalar> inbuf;
+    std::vector<kiss_fft_scalar> outbuf;
+    std::vector<kiss_fft_scalar> remainder;
+    int remainder_ptr;
+
+    //for single byte at a time.
+    std::vector<kiss_fft_scalar> single_input_output_buf;
+    unsigned int single_input_output_buf_ptr;
+
+    //
+    int kernelsize;
+
+};
+
+
+
+//--
 
 class QJHilbertFilter : public QJFastFIRFilter
 {
@@ -127,10 +354,16 @@ class QJHilbertFilter : public QJFastFIRFilter
 public:
     QJHilbertFilter(QObject *parent = 0);
     void setSize(int N);
-    QVector<kffsamp_t> getKernel();
+    QVector<cpx_type> getKernel();
+    void setSecondFilterKernel(QVector<cpx_type> imp_responce);//this is so we can use this class for filtering use the +ve frequencies for later mixing
+    void setSecondFilterKernel(QVector<kiss_fft_scalar> imp_responce);
 private:
-    QVector<kffsamp_t> kernel;
+    QVector<cpx_type> kernel;
 };
+
+
+//--
+
 
 //--
 

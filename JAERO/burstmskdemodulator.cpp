@@ -372,7 +372,7 @@ qint64 BurstMskDemodulator::writeData(const char *data, qint64 len)
 
     //make analytical signal
     hfirbuff.resize(numofsamples);
-    kffsamp_t asample;
+    kiss_fft_cpx asample;
     asample.i=0;
 
     for(int i=0;i<numofsamples;i++)

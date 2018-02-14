@@ -311,7 +311,7 @@ void BurstOqpskDemodulator::writeDataSlot(const char *data, qint64 len)
 
     //make analytical signal
     hfirbuff.resize(numofsamples);
-    kffsamp_t asample;
+    kiss_fft_cpx asample;
     asample.i=0;
     const short *ptr = reinterpret_cast<const short *>(data);
     if(channel_stereo)
